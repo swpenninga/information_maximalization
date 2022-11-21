@@ -5,7 +5,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-import CVAE
+import CVAE_test
 import MNIST_dataloader
 
 
@@ -17,13 +17,13 @@ def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     data_loc = 'D://5LSL0-Datasets'
-    batch_size = 64
+    batch_size = 128
     train_loader, test_loader = MNIST_dataloader.create_dataloaders(data_loc, batch_size)
-    num_z = 3
-    cvae = CVAE.AE(num_z)
+    num_z = 2
+    cvae = CVAE_test.AE(num_z)
     optimizer = torch.optim.Adam(cvae.parameters(), lr=args.learning_rate)
     if args.train:
-        cvae = trainnet(cvae, train_loader, test_loader, optimizer)
+        cvae = trainnet(cvae, train_loader, test_loader, optimizer, num_z)
     else:
         cvae.load_state_dict(torch.load("models/model170516"))
 
@@ -33,7 +33,8 @@ def main(args):
 
 def plotting(cvae, data, labels, num_z, fig_size=(10, 10)):
     cvae.eval()
-    xhat, h, z = cvae(data)
+    xhat, x_z, x_c, z, c = cvae(data, labels/9)
+
     z = z.detach().numpy()
     fig = plt.figure(figsize=fig_size)
     if num_z == 3:
@@ -42,23 +43,34 @@ def plotting(cvae, data, labels, num_z, fig_size=(10, 10)):
     else:
         ax = fig.add_subplot()
         ax.scatter(z[:, 0], z[:, 1], c=labels, cmap='tab10')
-    # ax.colorbar()
+    fig.suptitle('distribution of latent variable z')
     fig.show()
 
+    c = c.detach().numpy()
+    fig = plt.figure(figsize=fig_size)
+    if num_z == 3:
+        ax = fig.add_subplot(projection='3d')
+        ax.scatter(c[:, 0], c[:, 1], c[:, 2], c=labels, cmap='tab10')
+    else:
+        ax = fig.add_subplot()
+        ax.scatter(c[:, 0], c[:, 1], c=labels, cmap='tab10')
+    fig.suptitle('distribution of latent class variable c')
+    fig.show()
 
-def trainnet(cvae, train_loader, test_loader, optimizer):
+    return
+
+
+def trainnet(cvae, train_loader, test_loader, optimizer, num_z):
     criterion = nn.MSELoss()
     for epoch in range(args.epochs):
-
         totalloss = 0.0
-
         print(f"\nTraining Epoch {epoch + 1}:")
         cvae.train()
 
         for idx, (x, _, labels_x) in enumerate(tqdm(train_loader)):
             optimizer.zero_grad()
-            xhat, h, z = cvae(x+1)
-            loss, MSE, KLD = loss_fn(xhat, x+1, h, criterion)
+            xhat, x_z, x_c, z, c = cvae(x+1, labels_x/9)
+            loss, MSE, KLD = loss_fn(xhat, x+1, x_z, x_c, criterion)
             loss.backward()
             optimizer.step()
             totalloss += loss.item()
@@ -68,48 +80,46 @@ def trainnet(cvae, train_loader, test_loader, optimizer):
 
         cvae.eval()
         totalvalloss = 0.0
-        for idx, (x, _, _) in enumerate(test_loader):
-            xhat, h, z = cvae(x)
-            loss, MSE, KLD = loss_fn(xhat, x+1, h, criterion)
+        for idx, (x, _, labels_x) in enumerate(test_loader):
+            xhat, x_z, x_c, z, c = cvae(x+1, labels_x/9)
+            loss, MSE, KLD = loss_fn(xhat, x+1, x_z, x_c, criterion)
             totalvalloss += loss.item()
             if idx % 50 == 49:
                 print(f"loss:[{totalvalloss/50:.2e}] MSE:[{MSE:.2e}] KLD:[{KLD.item():.2e}]")
                 totalvalloss = 0.0
         cvae.train()
 
-    save_model(cvae)
+    save_model(cvae, num_z)
 
     return cvae
 
-def save_model(cvae):
+
+def save_model(cvae, num_z):
     now = datetime.now()
     current_time = now.strftime("%H%M%S")
-    torch.save(cvae.state_dict(), "models/model" + current_time)
+    torch.save(cvae.state_dict(), "models/model" + current_time + 'test' + str(num_z))
     print("Saved model weights as model" + current_time + ".")
     return
 
 
-# 1e-6 works for z_dim=2
-# 1e-5 works for z_dim=3
-
-
-def loss_fn(x_hat, x, h, criterion, beta=1e-5):
-    # BCE = torch.nn.functional.binary_cross_entropy(x_hat, x, reduction='sum')
+def loss_fn(x_hat, x, x_z, x_c, criterion, beta=1e-6):
     MSE = criterion(x_hat, x)
-    KLD = torch.zeros(1)
-    for i in range(int(h.size()[1]/2)):
-        KLD += torch.sum(torch.square(h[:, i]) - 2*h[:, i+int(h.size()[1]/2)] + torch.square(torch.exp(h[:, i+int(h.size()[1]/2)])) - 1)
-        # KLD += -0.5 * torch.sum(1 + h[:, i] - h[:, i+int(h.size()[1]/2)].pow(2) - h[:, i].exp())
+    KLD_z = torch.zeros(1)
+    KLD_c = torch.zeros(1)
+    for i in range(int(x_z.size()[1]/2)):
+        KLD_z += torch.sum(torch.square(x_z[:, i]) - 2*x_z[:, i+int(x_z.size()[1]/2)] + torch.square(torch.exp(x_z[:, i+int(x_z.size()[1]/2)])) - 1)
+        KLD_c += torch.sum(torch.square(x_c[:, i]) - 2*x_c[:, i+int(x_c.size()[1]/2)] + torch.square(torch.exp(x_c[:, i+int(x_c.size()[1]/2)])) - 1)
+    KLD = KLD_z + KLD_c
     return (MSE + beta*KLD)/x.size()[0], MSE/x.size()[0], beta*KLD/x.size()[0]
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=1523423)
-    parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument("--plot", type=bool, default=True)
-    parser.add_argument("--train", type=bool, default=False)
+    parser.add_argument("--train", type=bool, default=True)
 
     args = parser.parse_args()
 
