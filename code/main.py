@@ -15,7 +15,7 @@ def main(args):
     if args.train:
         cvae = utilities_network.trainnet(cvae, train_loader, test_loader, device, args)
     else:
-        cvae.load_state_dict(torch.load("models/model141233z3"))
+        cvae.load_state_dict(torch.load("models/model155149z3"))
 
     if args.plot:
         utilities_network.plotting(cvae, (train_loader.dataset.Clean_Images[0:5000, :, :, :] + 1)/2,
@@ -24,8 +24,8 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=123124234534)
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--seed", type=int, default=122355534)
+    parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--num_z", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=0.001)

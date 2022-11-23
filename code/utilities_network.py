@@ -129,5 +129,5 @@ def plotting(cvae, data, labels, num_z, fig_size=(10, 10)):
         plt.xticks([])
         plt.yticks([])
     plt.tight_layout()
-    plt.suptitle('output of the auto-encoder with respect to input numbers' + str(labels[10:20].numpy()))
+    plt.suptitle('output of the auto-encoder(num_z='+str(num_z)+') with respect to input numbers' + str(labels[10:20].numpy()))
     plt.show()
