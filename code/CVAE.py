@@ -13,7 +13,7 @@ class Encoder(nn.Module):
         self.conv4 = nn.Conv2d(16, 16, 3, stride=1, padding=1)
         self.fc1 = nn.Linear(64, 32)
         self.fc2 = nn.Linear(32, int(2*num_z))
-        self.fc3 = nn.Linear(33, int(2*num_z))
+        self.fc3 = nn.Linear(42, int(2*num_z))
 
     def forward(self, x, l):
         x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
@@ -22,7 +22,7 @@ class Encoder(nn.Module):
         x = F.max_pool2d(F.relu(self.conv4(x)), (2, 2))
         x = F.relu(self.fc1(torch.flatten(x, start_dim=1)))
         x_z = self.fc2(x)
-        x_c = self.fc3(torch.cat([x, torch.unsqueeze(l, -1)], -1))
+        x_c = self.fc3(torch.cat([x, l], -1))
         return x_z, x_c
 
 
@@ -57,16 +57,16 @@ class AE(nn.Module):
         self.encoder = Encoder(num_z)
         self.decoder = Decoder(num_z)
 
-    def forward(self, x, l):
+    def forward(self, x, l, device):
         x_z, x_c = self.encoder(x, l)
-        z = sample(x_z)
-        c = sample(x_c)
+        z = sample(x_z, device)
+        c = sample(x_c, device)
         xhat = self.decoder(torch.cat([z, c], -1))
         return xhat, x_z, x_c, z, c
 
 
-def sample(h):
-    z = torch.empty(h.size()[0], int(h.size()[1]/2))
+def sample(h, device):
+    z = torch.empty(h.size()[0], int(h.size()[1]/2), device=device)
     for i in range(int(h.size()[1]/2)):
-        z[:, i] = h[:, i] + torch.mul(torch.randn(h.shape[0]), torch.exp(h[:, int(i+h.size()[1]/2)]))
+        z[:, i] = h[:, i] + torch.mul(torch.randn(h.shape[0], device=device), torch.exp(h[:, int(i+h.size()[1]/2)]))
     return z
