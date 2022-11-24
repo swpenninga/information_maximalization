@@ -18,8 +18,8 @@ def main(args):
         cvae.load_state_dict(torch.load("models/model155149z3"))
 
     if args.plot:
-        utilities_network.plotting(cvae, (train_loader.dataset.Clean_Images[0:5000, :, :, :] + 1)/2,
-                                   train_loader.dataset.Labels[0:5000], args.num_z)
+        utilities_network.plotting(cvae, (train_loader.dataset.Clean_Images[0:6000, :, :, :] + 1)/2,
+                                   train_loader.dataset.Labels[0:6000], args.num_z)
 
 
 if __name__ == '__main__':

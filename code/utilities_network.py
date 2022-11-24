@@ -101,6 +101,8 @@ def plotting(cvae, data, labels, num_z, fig_size=(10, 10)):
         if num_z == 3:
             ax = fig.add_subplot(projection='3d')
             scatter = ax.scatter(c[:, 0], c[:, 1], c[:, 2], c=labels, cmap='tab10')
+            # ax.view_init(elev=-45, azim=-20)
+            # ax.view_init(elev=-70, azim=-60)
         else:
             ax = fig.add_subplot()
             scatter = ax.scatter(c[:, 0], c[:, 1], c=labels, cmap='tab10')
