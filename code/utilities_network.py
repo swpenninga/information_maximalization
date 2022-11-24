@@ -84,33 +84,29 @@ def plotting(cvae, data, labels, num_z, fig_size=(10, 10)):
     xhat, x_z, x_c, z, c = cvae(data, torch.nn.functional.one_hot(labels, num_classes=10), device)
     z = z.detach().numpy()
     c = c.detach().numpy()
-    if num_z == 3:
+    if num_z == 3 or num_z == 2:
         fig = plt.figure(figsize=fig_size)
-        ax = fig.add_subplot(projection='3d')
-        ax.scatter(z[:, 0], z[:, 1], z[:, 2], c=labels, cmap='tab10')
-        plt.suptitle('latent space of z')
-        fig.colorbar(matplotlib.cm.ScalarMappable(cmap='tab10'), ax=ax, ticks=torch.arange(10)/10)
+        if num_z == 3:
+            ax = fig.add_subplot(projection='3d')
+            scatter = ax.scatter(z[:, 0], z[:, 1], z[:, 2], c=labels, cmap='tab10')
+        else:
+            ax = fig.add_subplot()
+            scatter = ax.scatter(z[:, 0], z[:, 1], c=labels, cmap='tab10')
+        legend = ax.legend(*scatter.legend_elements(), loc="center left", prop={'size': 16})
+        ax.add_artist(legend)
+        fig.suptitle('latent space of z')
         fig.show()
 
         fig = plt.figure(figsize=fig_size)
-        ax = fig.add_subplot(projection='3d')
-        ax.scatter(c[:, 0], c[:, 1], c[:, 2], c=labels, cmap='tab10')
-        plt.suptitle('latent space of c')
-        fig.colorbar(matplotlib.cm.ScalarMappable(cmap='tab10'), ax=ax, ticks=torch.arange(10)/10)
-        fig.show()
-    elif num_z == 2:
-        fig = plt.figure(figsize=fig_size)
-        ax = fig.add_subplot()
-        ax.scatter(z[:, 0], z[:, 1], c=labels, cmap='tab10')
-        plt.suptitle('latent space of z')
-        fig.colorbar(matplotlib.cm.ScalarMappable(cmap='tab10'), ax=ax, ticks=torch.arange(10)/10)
-        fig.show()
-
-        fig = plt.figure(figsize=fig_size)
-        ax = fig.add_subplot()
-        ax.scatter(c[:, 0], c[:, 1], c=labels, cmap='tab10')
-        plt.suptitle('latent space of c')
-        fig.colorbar(matplotlib.cm.ScalarMappable(cmap='tab10'), ax=ax, ticks=torch.arange(10)/10)
+        if num_z == 3:
+            ax = fig.add_subplot(projection='3d')
+            scatter = ax.scatter(c[:, 0], c[:, 1], c[:, 2], c=labels, cmap='tab10')
+        else:
+            ax = fig.add_subplot()
+            scatter = ax.scatter(c[:, 0], c[:, 1], c=labels, cmap='tab10')
+        legend = ax.legend(*scatter.legend_elements(), loc="center left", prop={'size': 16})
+        ax.add_artist(legend)
+        fig.suptitle('latent space of c')
         fig.show()
 
     x_clean_example = data[10:20, :, :, :]
