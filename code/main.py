@@ -4,6 +4,7 @@ import torch
 import CVAE
 import MNIST_dataloader
 import utilities_network
+import MH_algorithm
 
 
 def main(args):
