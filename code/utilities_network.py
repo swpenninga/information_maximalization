@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import numpy as np
 import matplotlib
 from datetime import datetime
 
@@ -111,8 +112,8 @@ def plotting(cvae, data, labels, num_z, fig_size=(10, 10)):
         fig.suptitle('latent space of c')
         fig.show()
 
-    x_clean_example = data[10:20, :, :, :]
-    output_example = xhat[10:20, :, :, :]
+    x_clean_example = data[0:10, :, :, :]
+    output_example = xhat[0:10, :, :, :]
     output_example = output_example.detach().numpy()
 
     plt.figure(figsize=(12, 3))
@@ -129,3 +130,25 @@ def plotting(cvae, data, labels, num_z, fig_size=(10, 10)):
     plt.tight_layout()
     plt.suptitle('output of the auto-encoder(num_z='+str(num_z)+') with respect to input numbers' + str(labels[10:20].numpy()))
     plt.show()
+    return
+
+
+def plot_zspace(cvae, num_samples=64, pos=(1.5, -1, 1)):
+    points_per_dim = torch.pow(torch.tensor(num_samples), 1/3)
+    x = torch.linspace(-1, 1, int(points_per_dim.item()))
+    plt.figure(figsize=(12, 12))
+    for i in range(num_samples):
+        latent_vars = torch.tensor([x[int(np.floor(i / points_per_dim.item()**2) % points_per_dim.item()**2)],
+                                    x[int(np.floor(i/points_per_dim.item()) % points_per_dim.item())],
+                                    x[i % int(points_per_dim.item())],
+                                    pos[0], pos[1], pos[2]])
+        out = cvae.decoder(torch.unsqueeze(latent_vars, 0))
+        plt.subplot(int(np.sqrt(num_samples)), int(np.sqrt(num_samples)), i+1)
+        plt.imshow(np.squeeze(out.detach().numpy()))
+        plt.xticks([])
+        plt.yticks([])
+
+    plt.tight_layout()
+    plt.show()
+    return
+

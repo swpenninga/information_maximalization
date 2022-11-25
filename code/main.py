@@ -20,6 +20,7 @@ def main(args):
     if args.plot:
         utilities_network.plotting(cvae, (train_loader.dataset.Clean_Images[0:6000, :, :, :] + 1)/2,
                                    train_loader.dataset.Labels[0:6000], args.num_z)
+        utilities_network.plot_zspace(cvae, num_samples=64, pos=(1.5, -1, 1))
 
 
 if __name__ == '__main__':
@@ -32,8 +33,8 @@ if __name__ == '__main__':
     parser.add_argument("--plot", type=bool, default=True)
     parser.add_argument("--train", type=bool, default=False)
 
-    args = parser.parse_args()
-    main(args)
+    arguments = parser.parse_args()
+    main(arguments)
 
 
 
