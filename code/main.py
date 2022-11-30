@@ -1,10 +1,16 @@
 import argparse
 import torch
+from tqdm import tqdm
 
 import CVAE
 import MNIST_dataloader
 import utilities_network
 import MH_algorithm
+
+
+def sensor_dynamics(state, actions):
+    obs = torch.flatten(state, start_dim=2)
+    return obs[:, :, actions.numpy()]
 
 
 def main(args):
@@ -19,19 +25,24 @@ def main(args):
         cvae.load_state_dict(torch.load("models/model155149z3"))
 
     if args.MH:
-        mh_sampler = MH_algorithm.MH(cvae, device, args)
-        memory = torch.Tensor()
-        init_sample = torch.zeros((1, args.num_z*2))
-        for _ in range(args.mh_steps):
-            sample_set, log_posterior = mh_sampler.sample(memory=memory, init_sample=init_sample)
-            taken_action = MH_algorithm.action_num(cvae, sample_set, memory, args.image_size, device)
-            memory = torch.cat((memory, taken_action))
-            init_sample = sample_set[torch.argmax(log_posterior)].unsqueeze(0)
+        mh_sampler = MH_algorithm.MH(cvae, device, sensor_dynamics, args)
+        mh_loader, _ = MNIST_dataloader.create_dataloaders(data_loc, batch_size=1)
 
+        for idx, (image, _, label) in enumerate(tqdm(mh_loader)):
+            memory = torch.Tensor()
+            observations = torch.Tensor()
+            init_sample = torch.zeros((1, args.num_z*2))
+            for _ in range(args.mh_steps):
+                sample_set, log_posterior = mh_sampler.sample(memory=memory, init_sample=init_sample, observations=observations)
+                taken_action = MH_algorithm.action_num(cvae, sample_set, memory, args.image_size, device, sensor_dynamics)
+                memory = torch.cat((memory, taken_action))
+                observations = sensor_dynamics((image+1)/2, memory)
+                init_sample = sample_set[torch.argmax(log_posterior)].unsqueeze(0)
     if args.plot:
         utilities_network.plotting(cvae, (train_loader.dataset.Clean_Images[0:6000, :, :, :] + 1)/2,
                                    train_loader.dataset.Labels[0:6000], args.num_z)
         utilities_network.plot_zspace(cvae, num_samples=64, pos=(-1, -1, 1))
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
