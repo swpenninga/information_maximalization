@@ -36,7 +36,7 @@ class Noisy_MNIST(Dataset):
         # reshape and normalize
         resizer = transforms.Resize(32)
         resized_data = resizer(data)*1.0
-        normalized_data = 2 *(resized_data/255) - 1
+        normalized_data = (resized_data/255)
         #normalized_data = (resized_data - 33)/74
         
         # create the data

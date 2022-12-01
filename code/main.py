@@ -6,6 +6,7 @@ import CVAE
 import MNIST_dataloader
 import utilities_network
 import MH_algorithm
+import sampling_algorithm
 
 
 def sensor_dynamics(state, actions):
@@ -22,7 +23,7 @@ def main(args):
     if args.train:
         cvae = utilities_network.trainnet(cvae, train_loader, test_loader, device, args)
     else:
-        cvae.load_state_dict(torch.load("models/model155149z3"))
+        cvae.load_state_dict(torch.load("models/model172354z3"))
 
     if args.MH:
         mh_sampler = MH_algorithm.MH(cvae, device, sensor_dynamics, args)
@@ -36,26 +37,38 @@ def main(args):
                 sample_set, log_posterior = mh_sampler.sample(memory=memory, init_sample=init_sample, observations=observations)
                 taken_action = MH_algorithm.action_num(cvae, sample_set, memory, args.image_size, device, sensor_dynamics)
                 memory = torch.cat((memory, taken_action))
-                observations = sensor_dynamics((image+1)/2, memory)
+                observations = sensor_dynamics(image, memory)
                 init_sample = sample_set[torch.argmax(log_posterior)].unsqueeze(0)
+
+    if args.sampling_algorithm:
+        sampler = sampling_algorithm.SA(cvae.decoder, device, args)
+        mh_loader, _ = MNIST_dataloader.create_dataloaders(data_loc, batch_size=1)
+
+        idx, (image, _, label) = next(enumerate(mh_loader))
+        image = image.squeeze()
+        image = image.to(device)
+        sampler.sample(image)
+
     if args.plot:
-        utilities_network.plotting(cvae, (train_loader.dataset.Clean_Images[0:6000, :, :, :] + 1)/2,
+        utilities_network.plotting(cvae, train_loader.dataset.Clean_Images[0:6000, :, :, :],
                                    train_loader.dataset.Labels[0:6000], args.num_z)
-        utilities_network.plot_zspace(cvae, num_samples=64, pos=(-1, -1, 1))
+        utilities_network.plot_zspace(cvae, num_samples=64, pos=(-1.5, 1, 1))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=122355534)
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--image_size", type=int, default=32*32)
     parser.add_argument("--mh_steps", type=int, default=50)
     parser.add_argument("--num_z", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=0.001)
+
     parser.add_argument("--plot", type=bool, default=False)
     parser.add_argument("--train", type=bool, default=False)
-    parser.add_argument("--MH", type=bool, default=True)
+    parser.add_argument("--MH", type=bool, default=False)
+    parser.add_argument("--sampling_algorithm", type=bool, default=True)
 
     arguments = parser.parse_args()
     main(arguments)

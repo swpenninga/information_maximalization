@@ -7,7 +7,7 @@ import matplotlib
 from datetime import datetime
 
 
-def loss_fn(x_hat, x, x_z, x_c, criterion, device, beta=2e-7, zeta=0.5):
+def loss_fn(x_hat, x, x_z, x_c, criterion, device, beta=4e-7, zeta=1):
     MSE = criterion(x_hat, x)
     KLD_z = torch.zeros(1, device=device)
     KLD_c = torch.zeros(1, device=device)
@@ -38,11 +38,10 @@ def trainnet(cvae, train_loader, test_loader, device, args):
             x = x.to(device)
             labels_x = labels_x.to(device)
             labels_x = torch.nn.functional.one_hot(labels_x, num_classes=10)
-            x = (x + 1) / 2
 
             optimizer.zero_grad()
             xhat, x_z, x_c, z, c = cvae(x, labels_x, device)
-            loss, MSE, KLD = loss_fn(xhat, (x + 1) / 2, x_z, x_c, criterion, device)
+            loss, MSE, KLD = loss_fn(xhat, x, x_z, x_c, criterion, device)
             loss.backward()
             optimizer.step()
             totalloss += loss.item()
@@ -57,10 +56,9 @@ def trainnet(cvae, train_loader, test_loader, device, args):
                 x = x.to(device)
                 labels_x = labels_x.to(device)
                 labels_x = torch.nn.functional.one_hot(labels_x, num_classes=10)
-                x = (x + 1) / 2
 
                 xhat, x_z, x_c, z, c = cvae(x, labels_x, device)
-                loss, MSE, KLD = loss_fn(xhat, (x + 1) / 2, x_z, x_c, criterion, device)
+                loss, MSE, KLD = loss_fn(xhat, x, x_z, x_c, criterion, device)
                 totalvalloss += loss.item()
                 if idx % 50 == 49:
                     print(f"valloss:[{totalvalloss / 50:.2e}] MSE:[{MSE:.2e}] KLD:[{KLD.item():.2e}]")
@@ -150,5 +148,6 @@ def plot_zspace(cvae, num_samples=64, pos=(1.5, -1, 1)):
 
     plt.tight_layout()
     plt.show()
+
     return
 
