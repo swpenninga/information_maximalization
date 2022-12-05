@@ -60,7 +60,7 @@ if __name__ == '__main__':
 
     parser.add_argument("--plot", type=bool, default=False)
     parser.add_argument("--train", type=bool, default=False)
-    parser.add_argument("--sampling_algorithm", type=bool, default=False)
+    parser.add_argument("--sampling_algorithm", type=bool, default=True)
 
     arguments = parser.parse_args()
     main(arguments)

@@ -32,21 +32,19 @@ class SA:
 
     def generate_mc_samples(self, image, mask, error_fn):
         if torch.sum(mask).item():
-            stored_latent_pts = torch.zeros((1, 2*self.num_z), device=self.device)
+            stored_latent_pts = torch.zeros((1, self.num_z), device=self.device)
             error = torch.tensor(float('-Inf'))
             constant = 0.5 * (self.num_z+1 * math.log(2*math.pi) + math.log(self.mc_sigma))
             while len(stored_latent_pts) < self.num_samples + self.burn_in:
-                latent_point = torch.cat([torch.randn((1, self.num_z), device=self.device),
-                                          stored_latent_pts[-1, self.num_z:] +
-                                          torch.normal(0, self.mc_sigma, size=(1, self.num_z), device=self.device)]
-                                         , dim=1)
+                latent_point = stored_latent_pts[-1, :] + torch.normal(0, self.mc_sigma, size=(1, self.num_z), device=self.device)
+
                 error_candidate = self.calc_loss(int(torch.sum(mask)), latent_point, image, mask, error_fn, constant)
                 acceptance = self.trial(error_candidate, error)
                 if acceptance:
                     error = error_candidate
                     stored_latent_pts = torch.cat([stored_latent_pts, latent_point], dim=0)
         else:
-            stored_latent_pts = torch.randn((self.num_samples + self.burn_in, 2*self.num_z), device=self.device)
+            stored_latent_pts = torch.randn((self.num_samples + self.burn_in, self.num_z), device=self.device)
 
         return stored_latent_pts[self.burn_in:, :], self.decoder(stored_latent_pts[self.burn_in:, :])
 
@@ -57,7 +55,7 @@ class SA:
         ax.set_xlim(-3, 3)
         ax.set_ylim(-3, 3)
         ax.set_zlim(-3, 3)
-        scatter = ax.scatter(latent_pts[:, 3], latent_pts[:, 4], latent_pts[:, 5])
+        scatter = ax.scatter(latent_pts[:, 0], latent_pts[:, 1], latent_pts[:, 2])
         fig.suptitle('positions of samples')
         fig.show()
 
