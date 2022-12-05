@@ -1,57 +1,54 @@
+import math
+
 import torch
 from torchmetrics import MeanSquaredError
 import matplotlib.pyplot as plt
 
 
 class SA:
-    def __init__(self, decoder, device, args, num_samples=100):
+    def __init__(self, decoder, device, args, num_samples=100, burn_in_frac=0.2, mc_sigma=0.1):
         self.decoder = decoder.to(device)
         self.device = device
         self.num_z = args.num_z
         self.num_samples = num_samples
+        self.burn_in = int(burn_in_frac * num_samples)
+        self.mc_sigma = mc_sigma
 
-    def generate_random_samples(self, image, mask, precision=0.01):
-        mean_squared_error = MeanSquaredError().to(self.device)
-        # Create placeholder for latent_space samples that pass the test
-        stored_latent_pts = torch.empty((1, self.num_z), device=self.device)
+    def trial(self, new_loss, curr_loss):
+        return max(torch.rand((1, 1), device=self.device) < torch.exp(new_loss - curr_loss),
+                   new_loss > curr_loss)
 
-        # Ignore first element, we want a num_samples amount of points
-        while len(stored_latent_pts) < self.num_samples+1:
-            latent_points = torch.randn(self.num_samples, self.num_z, device=self.device)
-        # Generate image with randomized z parameters
-            with torch.no_grad():
-                images_generated = self.decoder(torch.cat([
-                    torch.randn(self.num_samples, self.num_z, device=self.device), latent_points], -1))
+    def calc_loss(self, t, latent_point, image, mask, error_fn, constant):
+        with torch.no_grad():
+            image_generated = self.decoder(latent_point)
+        image_generated = image_generated.squeeze()
+        values_gen = image_generated[mask.nonzero(as_tuple=True)]
+        values_real = image[mask.nonzero(as_tuple=True)]
 
-        # Error placeholder for all the generated candidates
-            error = torch.zeros(self.num_samples)
-        # If there is an open pixel in the mask, mask both real and generated images
-            if torch.sum(mask).item():
-                for i in range(self.num_samples):
-                    curr_image = images_generated[i].squeeze()
-        # Calculate the MAPE between the pixels that are in the mask
-                    values_gen = curr_image[mask.nonzero(as_tuple=True)]
-                    values_real = image[mask.nonzero(as_tuple=True)]
-                    error[i] = mean_squared_error(values_gen, values_real)
-        # Record if the MAPE is below a threshold and store the complying latent_points
-            passed_points = [j for j in range(len(error)) if error[j] < precision]
-            stored_latent_pts = torch.cat([stored_latent_pts, latent_points[passed_points, :]], dim=0)
+        recon_loss = error_fn(values_gen, values_real)/(2*self.mc_sigma)
+        const_loss = t*constant
+        prior_loss = torch.sum(torch.square(latent_point), 1) / 20
+        return - const_loss - recon_loss - prior_loss
 
-        stored_latent_pts = stored_latent_pts[1:self.num_samples+1, :]
-        images_latent_pts = self.decoder(torch.cat([
-            torch.randn(self.num_samples, self.num_z, device=self.device), stored_latent_pts], -1))
-        return stored_latent_pts, images_latent_pts
+    def generate_mc_samples(self, image, mask, error_fn):
+        if torch.sum(mask).item():
+            stored_latent_pts = torch.zeros((1, 2*self.num_z), device=self.device)
+            error = torch.tensor(float('-Inf'))
+            constant = 0.5 * (self.num_z+1 * math.log(2*math.pi) + math.log(self.mc_sigma))
+            while len(stored_latent_pts) < self.num_samples + self.burn_in:
+                latent_point = torch.cat([torch.randn((1, self.num_z), device=self.device),
+                                          stored_latent_pts[-1, self.num_z:] +
+                                          torch.normal(0, self.mc_sigma, size=(1, self.num_z), device=self.device)]
+                                         , dim=1)
+                error_candidate = self.calc_loss(int(torch.sum(mask)), latent_point, image, mask, error_fn, constant)
+                acceptance = self.trial(error_candidate, error)
+                if acceptance:
+                    error = error_candidate
+                    stored_latent_pts = torch.cat([stored_latent_pts, latent_point], dim=0)
+        else:
+            stored_latent_pts = torch.randn((self.num_samples + self.burn_in, 2*self.num_z), device=self.device)
 
-    def naive_entropy(self, latent_img):
-        latent_img = latent_img.squeeze()
-        std_max = 0
-        mask_pos = torch.tensor([12, 12])
-        for i in range(latent_img.size()[1]):
-            for j in range(latent_img.size()[2]):
-                if torch.std(latent_img[:, i, j]) > std_max:
-                    std_max = torch.std(latent_img[:, i, j])
-                    mask_pos = torch.tensor([i, j])
-        return mask_pos
+        return stored_latent_pts[self.burn_in:, :], self.decoder(stored_latent_pts[self.burn_in:, :])
 
     def plt_latent(self, latent_pts):
         latent_pts = latent_pts.cpu().detach().numpy()
@@ -60,15 +57,18 @@ class SA:
         ax.set_xlim(-3, 3)
         ax.set_ylim(-3, 3)
         ax.set_zlim(-3, 3)
-        scatter = ax.scatter(latent_pts[:, 0], latent_pts[:, 1], latent_pts[:, 2])
+        scatter = ax.scatter(latent_pts[:, 3], latent_pts[:, 4], latent_pts[:, 5])
         fig.suptitle('positions of samples')
         fig.show()
 
     def sample(self, image):
         mask = torch.zeros_like(image, device=self.device)
-        for i in range(15):
-            latent_pts, latent_img = self.generate_random_samples(image, mask)
+        mask[:, :] = 1
+        mse = MeanSquaredError().to(self.device)
+        plt.imshow(image[:, :].cpu().detach().numpy().squeeze())
+        plt.show()
+        for _ in range(10):
+            latent_pts, generated_imgs = self.generate_mc_samples(image, mask, mse)
             self.plt_latent(latent_pts)
-            next_measurement = self.naive_entropy(latent_img)
-            mask[next_measurement[0], next_measurement[1]] = 1
-
+            plt.imshow(generated_imgs[-1, :, :, :].cpu().detach().numpy().squeeze())
+            plt.show()
