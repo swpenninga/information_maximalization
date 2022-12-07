@@ -6,8 +6,9 @@ import matplotlib.pyplot as plt
 
 
 class SA:
-    def __init__(self, decoder, device, args, burn_in_frac=0.5, mc_sigma=0.2):
+    def __init__(self, decoder, classifier, device, args, burn_in_frac=0.4, mc_sigma=0.2):
         self.decoder = decoder.to(device)
+        self.classifier = classifier.to(device)
         self.device = device
         self.num_z = args.num_z
         self.num_samples = args.mh_steps
@@ -79,3 +80,20 @@ class SA:
             plt.show()
     ####
         return stored_latent_pts, stored_generated_imgs
+
+    def class_information(self, images):
+        with torch.no_grad():
+            prediction = self.classifier(images)
+        return torch.mean(torch.sum(prediction, 1))
+
+    def sampling_algorithm(self, dataloader):
+        idx, (image, _, label) = next(enumerate(dataloader))
+        image = image.squeeze()
+        image = image.to(self.device)
+
+        mask = torch.zeros_like(image)
+        latent_pts, gen_images = self.sample(image, mask, num_tries=1)
+
+        for i in range(len(gen_images)):
+            latent_pts_gen2, gen_images_gen2 = self.sample(torch.squeeze(gen_images[i, :, :, :]), mask, num_tries=1)
+        # create algorithm that selects maximum information max(abs(class_information))

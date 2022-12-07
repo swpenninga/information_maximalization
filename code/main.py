@@ -36,13 +36,9 @@ def main(args):
         utilities_network.plot_zspace(cvae, args.conditional, num_samples=64)
 
     if args.sampling_algorithm:
-        sampler = sampling_algorithm.SA(cvae.decoder, device, args)
+        sampler = sampling_algorithm.SA(cvae.decoder, classifier, device, args)
         mh_loader, _ = MNIST_dataloader.create_dataloaders(data_loc, batch_size=1)
-        idx, (image, _, label) = next(enumerate(mh_loader))
-        image = image.squeeze()
-        image = image.to(device)
-        mask = torch.zeros_like(image)
-        sampler.sample(image, mask)
+        sampler.sampling_algorithm(mh_loader)
         # Change autoencoder to where you delete the last conv layer!!!!
 
 
