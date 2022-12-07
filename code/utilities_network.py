@@ -7,7 +7,7 @@ import matplotlib
 from datetime import datetime
 
 
-def loss_fn(x_hat, x, z, criterion, beta=1e-6):
+def loss_fn(x_hat, x, z, criterion, beta=4e-6):
     MSE = criterion(x_hat, x)
     KLD = 0
     for i in range(int(z.size()[1]/2)):
