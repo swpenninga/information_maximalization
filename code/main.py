@@ -36,17 +36,19 @@ def main(args):
         utilities_network.plot_zspace(cvae, args.conditional, num_samples=64)
 
     if args.sampling_algorithm:
-        sampler = sampling_algorithm.SA(cvae.decoder, classifier, device, args)
         mh_loader, _ = MNIST_dataloader.create_dataloaders(data_loc, batch_size=1)
+        if args.conditional:
+            sampler = sampling_algorithm.SA_conditional(cvae.decoder, classifier, device, args)
+        else:
+            sampler = sampling_algorithm.SA_classifier(cvae.decoder, classifier, device, args)
         sampler.sampling_algorithm(mh_loader)
-        # Change autoencoder to where you delete the last conv layer!!!!
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=1264542243534)
-    parser.add_argument("--epochs", type=int, default=15)
-    parser.add_argument("--mh_steps", type=int, default=200)
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--epochs", type=int, default=60)
+    parser.add_argument("--mh_steps", type=int, default=150)
     parser.add_argument("--num_z", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=0.001)
