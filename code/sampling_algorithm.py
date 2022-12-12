@@ -3,21 +3,9 @@ from torchmetrics import MeanSquaredError
 import matplotlib.pyplot as plt
 
 
-class SA_conditional:
-    def __init__(self, decoder, classifier, device, args, burn_in_frac=0.2, mc_sigma=0.2):
+class SA:
+    def __init__(self, decoder,  device, args, burn_in_frac=0.3, mc_sigma=0.3):
         self.decoder = decoder.to(device)
-        self.classifier = classifier.to(device)
-        self.device = device
-        self.num_z = args.num_z
-        self.num_samples = args.mh_steps
-        self.burn_in = int(burn_in_frac * args.mh_steps)
-        self.mc_sigma = mc_sigma
-
-
-class SA_classifier:
-    def __init__(self, decoder, classifier, device, args, burn_in_frac=0.2, mc_sigma=0.2):
-        self.decoder = decoder.to(device)
-        self.classifier = classifier.to(device)
         self.device = device
         self.num_z = args.num_z
         self.num_samples = args.mh_steps
@@ -63,8 +51,7 @@ class SA_classifier:
         fig.suptitle('positions of samples')
         fig.show()
 
-    def sample(self, image, mask, num_tries=5):
-        mse = MeanSquaredError().to(self.device)
+    def sample(self, image, mask, mse, num_tries=5):
         stored_err = torch.tensor(float('Inf'))
         for _ in range(num_tries):
             latent_pts, generated_imgs, final_err = self.generate_mc_samples(image, mask, mse)
@@ -74,38 +61,13 @@ class SA_classifier:
                 stored_err = torch.mean(final_err)
         return stored_latent_pts, stored_generated_imgs
 
-    def class_information(self, images):
-        with torch.no_grad():
-            prediction = self.classifier(images)
-        value, _ = torch.mode(torch.argmax(prediction, 1))
-        certainty = len(torch.argmax(prediction, 1)[torch.argmax(prediction, 1) == value])/len(prediction)*100
-        return torch.mean(torch.sum(prediction, 1)), value, certainty
-
-    def sampling_algorithm(self, dataloader, precision=0.55):
-        idx, (image, _, label) = next(enumerate(dataloader))
+    def algorithm(self, image, label, precision=0.95):
         image = image.squeeze()
         image = image.to(self.device)
         mask = torch.zeros_like(image)
+        mse = MeanSquaredError().to(self.device)
 
-        certainty = 0
-        while certainty < precision:
-            latent_pts, gen_images = self.sample(image, mask, num_tries=15)
-            _, value, certainty = self.class_information(gen_images)
-            print(f'True Value: {label.cpu().detach().numpy()}')
-            print(f'Current prediction: [{value}]')
-            print(f'Certainty: [{certainty:.2f}%]')
-            print(f'Number of pixels used: [{int(torch.sum(mask[:]))}]')
-            max_information = 0
-            for j in (mask == 0).nonzero():
-                print(j.cpu().detach().numpy())
-                proposal_mask = mask
-                proposal_mask[j] = 1
-                current_information = 0
-                for i in range(int(len(gen_images)/10)):
-                    latent_pts_gen2, gen_images_gen2 = self.sample(torch.squeeze(gen_images[-i, :, :, :]), proposal_mask, num_tries=1)
-                    info_in_gen2, _, _ = self.class_information(gen_images_gen2)
-                    current_information += torch.abs(info_in_gen2)
-                if current_information > max_information:
-                    max_information = current_information
-                    new_mask = proposal_mask
-            mask = new_mask
+        for _ in range(1):
+            latent_pts, gen_images = self.sample(image, mask, mse, num_tries=15)
+
+

@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,17 +20,18 @@ def loss_fn(x_hat, x, z, criterion, beta=1e-6):
 def trainnet(cvae, train_loader, test_loader, device, args):
     print('Training on ' + str(device))
 
-    optimizer = torch.optim.Adam(cvae.parameters(), lr=args.learning_rate)
-    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(cvae.parameters(), lr=0.001)
+    criterion = nn.MSELoss(reduction='mean')
     cvae.to(device)
-
+    cvae.train()
     for epoch in range(args.epochs):
         totalloss = 0.0
         print(f"\nTraining Epoch {epoch + 1}:")
-        cvae.train()
-        for idx, (x, _, labels_x) in enumerate(tqdm(train_loader)):
+        print('Train:')
+        for idx, (x, labels_x) in enumerate(tqdm(train_loader)):
             x = x.to(device)
             labels_x = labels_x.to(device)
+            labels_x = F.one_hot(labels_x, num_classes=10)
 
             optimizer.zero_grad()
             xhat, z = cvae(x, labels_x, device)
@@ -42,89 +44,42 @@ def trainnet(cvae, train_loader, test_loader, device, args):
                 totalloss = 0.0
 
         cvae.eval()
+        print('Eval:')
         totalvalloss = 0.0
-        with torch.no_grad():
-            for idx, (x, _, labels_x) in enumerate(test_loader):
-                x = x.to(device)
-                labels_x = labels_x.to(device)
+        for idx, (x, labels_x) in enumerate(tqdm(test_loader)):
+            x = x.to(device)
+            labels_x = labels_x.to(device)
+            labels_x = F.one_hot(labels_x, num_classes=10)
 
-                xhat, z = cvae(x, labels_x, device)
-                loss, MSE, KLD = loss_fn(xhat, x, z, criterion)
-                totalvalloss += loss.item()
-                if idx % 50 == 49:
-                    print(f"valloss:[{totalvalloss / 50:.2e}] MSE:[{MSE:.2e}] KLD:[{KLD.item():.2e}]")
-                    totalvalloss = 0.0
+            optimizer.zero_grad()
+            xhat, z = cvae(x, labels_x, device)
+            loss, MSE, KLD = loss_fn(xhat, x, z, criterion)
+            loss.backward()
+            optimizer.step()
+            totalvalloss += loss.item()
+            if idx % 50 == 49:
+                print(f"valloss:[{totalvalloss / 50:.2e}] valMSE:[{MSE:.2e}] valKLD:[{KLD.item():.2e}]")
+                totalvalloss = 0.0
+
     cvae.to(torch.device('cpu'))
-    save_model(cvae, args.num_z, args.conditional)
+    save_model(cvae, args.num_z)
     return cvae
 
 
-def train_classifier(model, train_loader, test_loader, device, args):
-    torch.manual_seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(args.seed)
-    print('Training on ' + str(device))
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-    criterion = nn.CrossEntropyLoss()
-    model.to(device)
-
-    for epoch in range(args.epochs):
-        totalloss = 0.0
-        print(f"\nTraining Epoch {epoch + 1}:")
-        model.train()
-        for idx, (x, _, labels_x) in enumerate(tqdm(train_loader)):
-            x = x.to(device)
-            labels_x = labels_x.to(device)
-            labels_x = torch.nn.functional.one_hot(labels_x, num_classes=10)
-
-            optimizer.zero_grad()
-            xhat = model(x)
-            loss = criterion(xhat, labels_x.float())
-            loss.backward()
-            optimizer.step()
-            totalloss += loss.item()
-            if idx % 100 == 99:
-                print(f"loss:[{totalloss / 100:.2e}]")
-                totalloss = 0.0
-
-        model.eval()
-        totalvalloss = 0.0
-        with torch.no_grad():
-            for idx, (x, _, labels_x) in enumerate(test_loader):
-                x = x.to(device)
-                labels_x = labels_x.to(device)
-                labels_x = torch.nn.functional.one_hot(labels_x, num_classes=10)
-                xhat = model(x)
-                loss = criterion(xhat, labels_x.float())
-                totalvalloss += loss.item()
-                if idx % 50 == 49:
-                    print(f"valloss:[{totalvalloss / 50:.2e}]")
-                    totalvalloss = 0.0
-    model.to(torch.device('cpu'))
-    save_model(model, args.num_z, classifier=True)
-    return model
-
-
-def save_model(cvae, num_z, conditional=False, classifier=False):
+def save_model(cvae, num_z):
     now = datetime.now()
     current_time = now.strftime("%H%M%S")
-    if classifier:
-        torch.save(cvae.state_dict(), "models/model_classifier" + current_time)
-        print("Saved classifier weights as model_classifier" + current_time + '.')
-    else:
-        cond = ''
-        if conditional:
-            cond = 'cond'
-        torch.save(cvae.state_dict(), "models/model" + current_time + 'z' + str(num_z) + cond)
-        print("Saved model weights as model" + current_time + 'z' + str(num_z) + cond + ".")
+    torch.save(cvae.state_dict(), "models/model" + current_time + 'z' + str(num_z))
+    print("Saved model weights as model" + current_time + 'z' + str(num_z))
     return
 
 
-def plotting(cvae, data, labels, num_z, fig_size=(10, 10)):
+def plotting(cvae, dataloader, num_z, fig_size=(10, 10)):
+    _, (data, labels) = next(enumerate(dataloader))
+    labels2 = F.one_hot(labels, num_classes=10)
     cvae.eval()
     device = torch.device('cpu')
-    xhat, z = cvae(data, labels, device)
+    xhat, z = cvae(data, labels2, device)
     z = z.detach().numpy()
     if num_z == 3 or num_z == 2:
         fig = plt.figure(figsize=fig_size)
@@ -139,9 +94,23 @@ def plotting(cvae, data, labels, num_z, fig_size=(10, 10)):
         fig.suptitle('latent space z')
         fig.show()
 
+    plt.figure(figsize=fig_size)
+    for i in range(num_z):
+        plt.subplot(num_z, 1, i+1)
+        plt.hist(z[:, i])
+    plt.tight_layout()
+    plt.show()
+
     x_clean_example = data[0:10, :, :, :]
     output_example = xhat[0:10, :, :, :]
     output_example = output_example.detach().numpy()
+
+    plt.figure(figsize=(12, 8))
+    plt.subplot(2, 1, 1)
+    plt.hist(x_clean_example[0, :, :, :].flatten())
+    plt.subplot(2, 1, 2)
+    plt.hist(output_example[0, :, :, :].flatten())
+    plt.show()
 
     plt.figure(figsize=(12, 3))
     for i in range(10):
@@ -155,12 +124,12 @@ def plotting(cvae, data, labels, num_z, fig_size=(10, 10)):
         plt.xticks([])
         plt.yticks([])
     plt.tight_layout()
-    plt.suptitle('output of the auto-encoder(num_z='+str(num_z)+') with respect to input numbers' + str(labels[10:20].numpy()))
+    plt.suptitle('output of the auto-encoder(num_z='+str(num_z)+') with respect to input numbers' + str(labels[0:10].numpy()))
     plt.show()
     return
 
 
-def plot_zspace(cvae, conditional, num_samples=64):
+def plot_zspace(cvae, number=3, num_samples=64):
     points_per_dim = torch.pow(torch.tensor(num_samples), 1/3)
     x = torch.linspace(-0.5, 0.5, int(points_per_dim.item()))
     plt.figure(figsize=(12, 12))
@@ -168,13 +137,14 @@ def plot_zspace(cvae, conditional, num_samples=64):
         latent_vars = torch.tensor([x[int(np.floor(i / points_per_dim.item()**2) % points_per_dim.item()**2)],
                                     x[int(np.floor(i/points_per_dim.item()) % points_per_dim.item())],
                                     x[i % int(points_per_dim.item())]])
-        if conditional:
-            label = torch.unsqueeze(torch.tensor([0]), 0)
-            out = cvae.decoder(torch.cat([torch.unsqueeze(latent_vars, 0), label], dim=-1))
-        else:
-            out = cvae.decoder(torch.unsqueeze(latent_vars, 0))
+
+        label = torch.tensor([number])
+        label = F.one_hot(label, num_classes=10).squeeze()
+
+        out = cvae.decoder(torch.unsqueeze(torch.cat([latent_vars, label], dim=-1), 0))
+
         plt.subplot(int(np.sqrt(num_samples)), int(np.sqrt(num_samples)), i+1)
-        plt.imshow(np.squeeze(out.detach().numpy()))
+        plt.imshow(np.squeeze(out.detach().numpy()), cmap='gray')
         plt.xticks([])
         plt.yticks([])
 
