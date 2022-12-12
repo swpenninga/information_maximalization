@@ -30,7 +30,7 @@ def main(args):
     if args.train:
         cvae = utilities_network.trainnet(cvae, train_loader, test_loader, device, args)
     else:
-        cvae.load_state_dict(torch.load("models/model170638z11"))
+        cvae.load_state_dict(torch.load("models/model_z11"))
 
     if args.plot:
         plot_loader = load_data(args.data_path, batch_size=5000, train=False)
@@ -54,7 +54,7 @@ if __name__ == '__main__':
 
     parser.add_argument("--seed", type=int, default=76)
     parser.add_argument("--epochs", type=int, default=75)
-    parser.add_argument("--num_z", type=int, default=15)
+    parser.add_argument("--num_z", type=int, default=11)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--data_path", type=str, default='D://MNIST')
 
