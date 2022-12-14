@@ -50,7 +50,6 @@ class SA:
     def find_entropy(self, image, latent_pts, class_onehot, error_fn):
         images_gen = self.decoder(torch.cat([latent_pts, class_onehot.repeat(len(latent_pts), 1)], -1))
         images_truth = image.unsqueeze(0).repeat(len(latent_pts), 1, 1)
-        # images_truth = images_truth.repeat(len(latent_pts), 1, 1)
         loss = error_fn(torch.squeeze(images_gen), images_truth)
         return loss
 
