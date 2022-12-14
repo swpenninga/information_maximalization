@@ -10,7 +10,7 @@ import sampling_algorithm
 
 def load_data(path, batch_size, train=False):
     data_loader = torch.utils.data.DataLoader(
-        datasets.MNIST(path, train=train, transform=transforms.Compose([
+        datasets.MNIST(path, download=False, train=train, transform=transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
     ])), batch_size=batch_size, shuffle=True)
@@ -30,7 +30,7 @@ def main(args):
     if args.train:
         cvae = utilities_network.trainnet(cvae, train_loader, test_loader, device, args)
     else:
-        cvae.load_state_dict(torch.load("models/model_z11"))
+        cvae.load_state_dict(torch.load("models/model_z"+str(args.num_z)))
 
     if args.plot:
         plot_loader = load_data(args.data_path, batch_size=5000, train=False)
@@ -49,12 +49,13 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", type=bool, default=False)
-    parser.add_argument("--plot", type=bool, default=True)
-    parser.add_argument("--sampling_algorithm", type=bool, default=False)
+    parser.add_argument("--plot", type=bool, default=False)
+    parser.add_argument("--sampling_algorithm", type=bool, default=True)
 
     parser.add_argument("--seed", type=int, default=76)
     parser.add_argument("--epochs", type=int, default=75)
-    parser.add_argument("--num_z", type=int, default=11)
+    parser.add_argument("--num_z", type=int, default=7)
+    parser.add_argument("--mh_steps", type=int, default=40)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--data_path", type=str, default='D://MNIST')
 

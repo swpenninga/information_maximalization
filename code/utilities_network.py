@@ -44,22 +44,23 @@ def trainnet(cvae, train_loader, test_loader, device, args):
                 totalloss = 0.0
 
         cvae.eval()
-        print('Eval:')
-        totalvalloss = 0.0
-        for idx, (x, labels_x) in enumerate(tqdm(test_loader)):
-            x = x.to(device)
-            labels_x = labels_x.to(device)
-            labels_x = F.one_hot(labels_x, num_classes=10)
+        with torch.no_grad():
+            print('Eval:')
+            totalvalloss = 0.0
+            for idx, (x, labels_x) in enumerate(tqdm(test_loader)):
+                x = x.to(device)
+                labels_x = labels_x.to(device)
+                labels_x = F.one_hot(labels_x, num_classes=10)
 
-            optimizer.zero_grad()
-            xhat, z = cvae(x, labels_x, device)
-            loss, MSE, KLD = loss_fn(xhat, x, z, criterion)
-            loss.backward()
-            optimizer.step()
-            totalvalloss += loss.item()
-            if idx % 50 == 49:
-                print(f"valloss:[{totalvalloss / 50:.2e}] valMSE:[{MSE:.2e}] valKLD:[{KLD.item():.2e}]")
-                totalvalloss = 0.0
+                optimizer.zero_grad()
+                xhat, z = cvae(x, labels_x, device)
+                loss, MSE, KLD = loss_fn(xhat, x, z, criterion)
+                loss.backward()
+                optimizer.step()
+                totalvalloss += loss.item()
+                if idx % 50 == 49:
+                    print(f"valloss:[{totalvalloss / 50:.2e}] valMSE:[{MSE:.2e}] valKLD:[{KLD.item():.2e}]")
+                    totalvalloss = 0.0
 
     cvae.to(torch.device('cpu'))
     save_model(cvae, args.num_z)
