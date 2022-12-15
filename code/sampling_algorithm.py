@@ -1,10 +1,11 @@
 import torch
 from torchmetrics import MeanSquaredError
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 class SA:
-    def __init__(self, decoder,  device, args, burn_in_frac=0.2, mc_sigma=0.1):
+    def __init__(self, decoder,  device, args, burn_in_frac=0, mc_sigma=0.1):
         self.decoder = decoder.to(device)
         self.device = device
         self.num_z = args.num_z
@@ -12,7 +13,7 @@ class SA:
         self.burn_in = int(burn_in_frac * args.mh_steps)
         self.mc_sigma = mc_sigma
 
-    def trial(self, new_loss, curr_loss, exp_amp=35):
+    def trial(self, new_loss, curr_loss, exp_amp=50):
         return torch.rand((1, 1), device=self.device) < torch.exp(-exp_amp*((new_loss - curr_loss)/curr_loss)) or new_loss < curr_loss
 
     def calc_loss(self, latent_point, image, mask, error_fn):
@@ -35,7 +36,7 @@ class SA:
                     stored_latent_pts = torch.cat([stored_latent_pts, latent_point])
         else:
             stored_latent_pts = torch.randn((self.num_samples + self.burn_in, self.num_z), device=self.device)
-            error = torch.tensor(1e10) * torch.ones((self.num_samples + self.burn_in, 1), device=self.device)
+            error = torch.tensor(1e10, device=self.device) * torch.ones((self.num_samples + self.burn_in, 1), device=self.device)
         return stored_latent_pts[self.burn_in:, :], error[-int(self.num_samples*0.1):]
 
     def sample(self, image, mask, class_onehot, mse, num_tries=3):
@@ -53,25 +54,63 @@ class SA:
         loss = error_fn(torch.squeeze(images_gen), images_truth)
         return loss
 
-    def algorithm(self, image, label):
-        image = image.squeeze()
-        image = image.to(self.device)
-        mask = torch.zeros(1, 2)
-        mse = MeanSquaredError().to(self.device)
-        classes = torch.nn.functional.one_hot(torch.arange(10))
-        mask_elements = torch.unsqueeze(torch.arange(len(image)).repeat(len(image), 1).flatten(), -1)
-        mask_elements = torch.cat([mask_elements, torch.unsqueeze(torch.repeat_interleave(torch.arange(len(image)), len(image)), -1)], -1)
-        mask = mask_elements
-        # mask = torch.zeros(1, 2)
-        loss = torch.ones(len(classes)) * torch.tensor(float('Inf'))
+    def print_status(self, mask, loss, label):
+        print('Num pixels sampled: ' + str(len(mask) - 1))
+        print('Current loss: ')
+        print(str(loss.cpu().detach().numpy()))
+        print('Belief: ' + str(torch.argmin(loss).cpu().detach().numpy()) + ' Truth: ' + str(
+            label.cpu().detach().numpy()))
+        return
+
+    def evaluate_classes(self, image, mask, classes, loss_fn, num_img_frac=0.2):
+        loss = torch.empty([len(classes), 2], device=self.device)
+        loss[:, 0] = torch.arange(len(classes), device=self.device)
+        loss[:, 1] = torch.ones(len(classes), device=self.device) * torch.tensor(float('Inf'), device=self.device)
+        num_img = int(self.num_samples * num_img_frac)
+        images_all_classes = torch.empty([len(classes), num_img, 1, len(image), len(image)], device=self.device)
+
         for i in range(len(classes)):
             print('Evaluating ' + str(i))
             curr_class = classes[i, :]
-            latent_pts = self.sample(image, mask, curr_class, mse, num_tries=1)
-            loss[i] = self.find_entropy(image, latent_pts, curr_class, mse)
+            latent_pts = self.sample(image, mask, curr_class, loss_fn, num_tries=1)
+            loss[i, 1] = self.find_entropy(image, latent_pts, curr_class, loss_fn)
 
-        print(torch.nn.functional.softmax(loss, dim=0))
-        print('Belief: ' + str(torch.argmin(loss).detach().numpy()) + ' Truth: ' + str(label.detach().numpy()))
+            images_gen = self.decoder(torch.cat([latent_pts[-num_img:, :], curr_class.repeat(num_img, 1)], -1))
+            images_all_classes[i, :, :, :, :] = images_gen
+        loss[:, 1] = loss[:, 1] / torch.sum(loss[:, 1])
+
+        return loss, images_all_classes
+
+    def unseen_pixels(self, mask, image):
+        mask_elements = torch.unsqueeze(torch.arange(len(image)).repeat(len(image), 1).flatten(), -1)
+        mask_elements = torch.cat(
+            [mask_elements, torch.unsqueeze(torch.repeat_interleave(torch.arange(len(image)), len(image)), -1)], -1)
+        mask_elements = mask_elements.to(self.device)
+
+        #!!!!!!!!!!!!!!!!!!!!
+        unseen_pixels = 0
+
+        return unseen_pixels
+
+    def algorithm(self, image, label):
+        image = image.squeeze()
+        image = image.to(self.device)
+        label = label.to(self.device)
+        classes = torch.nn.functional.one_hot(torch.arange(10, device=self.device))
+        mask = torch.zeros([1, 2], device=self.device)
+
+        mse = MeanSquaredError().to(self.device)
+
+        unseen_pixels = self.unseen_pixels(mask, image)
+        print(len(unseen_pixels))
+
+        # Current status:
+        loss, images_all_classes = self.evaluate_classes(image, mask, classes, mse)
+        self.print_status(mask, loss, label)
+        # Find next move:
+
+
+
 
 
 

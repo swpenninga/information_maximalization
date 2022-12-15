@@ -22,6 +22,7 @@ def main(args):
     train_loader = load_data(args.data_path, batch_size=args.batch_size, train=True)
     test_loader = load_data(args.data_path, batch_size=args.batch_size, train=False)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Running on ' + str(device))
 
     if torch.cuda.is_available():
         torch.cuda.manual_seed(args.seed)
@@ -53,9 +54,9 @@ if __name__ == '__main__':
     parser.add_argument("--sampling_algorithm", type=bool, default=True)
 
     parser.add_argument("--seed", type=int, default=76)
-    parser.add_argument("--epochs", type=int, default=75)
-    parser.add_argument("--num_z", type=int, default=7)
-    parser.add_argument("--mh_steps", type=int, default=40)
+    parser.add_argument("--epochs", type=int, default=55)
+    parser.add_argument("--num_z", type=int, default=15)
+    parser.add_argument("--mh_steps", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--data_path", type=str, default='D://MNIST')
 

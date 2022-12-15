@@ -18,8 +18,6 @@ def loss_fn(x_hat, x, z, criterion, beta=1e-6):
 
 
 def trainnet(cvae, train_loader, test_loader, device, args):
-    print('Training on ' + str(device))
-
     optimizer = torch.optim.Adam(cvae.parameters(), lr=0.001)
     criterion = nn.MSELoss(reduction='mean')
     cvae.to(device)
