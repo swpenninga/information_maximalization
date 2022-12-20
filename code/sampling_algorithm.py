@@ -71,6 +71,7 @@ class SA:
         print(str(loss.cpu().detach().numpy()))
         print('Belief: ' + str(torch.argmin(loss[:, 1]).cpu().detach().numpy()) + ' Truth: ' + str(
             label.cpu().detach().numpy()))
+        print('- - - - - - - - - - - - - - - - -')
         return
 
     def evaluate_classes(self, image, mask, classes, loss_fn, num_tries=1):
@@ -96,8 +97,10 @@ class SA:
         mask_elements = torch.cat(
             [mask_elements, torch.unsqueeze(torch.repeat_interleave(torch.arange(len(image)), len(image)), -1)], -1)
         mask_elements = mask_elements.to(self.device)
-        pixels_in_common = torch.where((mask_elements == mask).all(dim=1))[0]
-        mask_elements = torch.cat((mask_elements[:pixels_in_common], mask_elements[pixels_in_common + 1:]))
+        for i in range(len(mask)):
+            curr_mask = mask[i, :]
+            pixels_in_common = torch.where((mask_elements == curr_mask).all(dim=1))[0]
+            mask_elements = torch.cat((mask_elements[:pixels_in_common], mask_elements[pixels_in_common + 1:]))
         return mask_elements
 
     def parallel_fn(self, mask, images_all_classes, classes, loss_fn, candidate):
@@ -112,12 +115,11 @@ class SA:
     def cpu_parallel(self, mask, image_real, classes, images_all_classes, loss_fn):
         mask_candidates = self.unseen_pixels(mask, image_real)
         mask_elem = [torch.tensor(elem) for elem in mask_candidates.tolist()]
-        mask_elem = mask_elem[0:4]
         with concurrent.futures.ProcessPoolExecutor() as executor:
             results = executor.map(functools.partial(self.parallel_fn, mask, images_all_classes, classes, loss_fn), mask_elem)
         stds = [torch.std(elem).detach().numpy() for elem in list(results)]
-        print(np.argmax(stds))
-        return mask
+        mask_candidate = torch.cat([mask, torch.unsqueeze(mask_elem[np.argmax(stds)], 0)], dim=0)
+        return mask_candidate
 
     def gpu_parallel(self, mask, image_real, classes, images_all_classes, loss_fn):
         mask_candidates = self.unseen_pixels(mask, image_real)
@@ -128,11 +130,9 @@ class SA:
                 loss, _ = self.evaluate_classes(images_all_classes[i, :, :], mask_candidate.long(), classes,
                                                 loss_fn)
                 candidate_loss[idx, :] += loss[:, 1]
-
         mask = torch.cat([mask, torch.unsqueeze(mask_candidates[torch.argmax(candidate_loss.std(dim=1))], 0)],
                          dim=0)
         return mask
-
 
     def algorithm(self, image, label, loss_fn='l1'):
         self.decoder.eval()
