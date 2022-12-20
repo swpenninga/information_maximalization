@@ -8,7 +8,7 @@ import matplotlib
 from datetime import datetime
 
 
-def loss_fn(x_hat, x, z, criterion, beta=1e-6):
+def loss_fn(x_hat, x, z, criterion, beta=2e-7):
     MSE = criterion(x_hat, x)
     KLD = 0
     for i in range(int(z.size()[1]/2)):
@@ -53,7 +53,6 @@ def trainnet(cvae, train_loader, test_loader, device, args):
                 optimizer.zero_grad()
                 xhat, z = cvae(x, labels_x, device)
                 loss, MSE, KLD = loss_fn(xhat, x, z, criterion)
-                loss.backward()
                 optimizer.step()
                 totalvalloss += loss.item()
                 if idx % 50 == 49:
