@@ -49,6 +49,8 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument("--data_path", type=str, default='D://MNIST')
+
     parser.add_argument("--train", type=bool, default=False)
     parser.add_argument("--plot", type=bool, default=False)
     parser.add_argument("--sampling_algorithm", type=bool, default=True)
@@ -56,10 +58,11 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, default=766)
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--num_z", type=int, default=15)
-    parser.add_argument("--mh_steps", type=int, default=40)
-    parser.add_argument("--loss_fn", type=str, default='l1')
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--data_path", type=str, default='D://MNIST')
+
+    parser.add_argument("--mh_steps", type=int, default=40)
+    parser.add_argument("--num_pixels", type=int, default=50)
+    parser.add_argument("--loss_fn", type=str, default='l1')
 
     arguments = parser.parse_args()
     main(arguments)

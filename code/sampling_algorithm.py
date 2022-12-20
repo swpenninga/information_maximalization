@@ -1,9 +1,11 @@
+import functools
+
 import torch
 from torchmetrics import MeanSquaredError
 import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
-import multiprocessing as mp
+import concurrent.futures
 
 
 class SA:
@@ -15,6 +17,7 @@ class SA:
         self.burn_in = int(burn_in_frac * args.mh_steps)
         self.mc_sigma = mc_sigma
         self.num_img_frac = num_img_frac
+        self.num_pixels = args.num_pixels
 
     def trial(self, new_loss, curr_loss, exp_amp=15):
         return torch.rand((1, 1), device=self.device) < torch.exp(-exp_amp*((new_loss - curr_loss)/curr_loss)) or new_loss < curr_loss
@@ -26,7 +29,8 @@ class SA:
         recon_loss = 0
         for i in range(len(mask)):
             recon_loss += error_fn(image_generated[mask[i, :]], image[mask[i, :]])
-        return recon_loss
+        latent_pt_loss = torch.sum(torch.abs(latent_point))*1e-3
+        return recon_loss + latent_pt_loss
 
     def generate_mc_samples(self, image, mask, class_onehot, error_fn):
         if torch.sum(mask).item():
@@ -39,7 +43,6 @@ class SA:
                 if acceptance:
                     error = torch.cat([error, error_candidate * torch.ones(1, device=self.device)], dim=0)
                     stored_latent_pts = torch.cat([stored_latent_pts, latent_point])
-
 
         else:
             stored_latent_pts = torch.randn((self.num_samples + self.burn_in, self.num_z), device=self.device)
@@ -70,7 +73,7 @@ class SA:
             label.cpu().detach().numpy()))
         return
 
-    def evaluate_classes(self, image, mask, classes, loss_fn):
+    def evaluate_classes(self, image, mask, classes, loss_fn, num_tries=1):
         loss = torch.empty([len(classes), 2], device=self.device)
         loss[:, 0] = torch.arange(len(classes), device=self.device)
         loss[:, 1] = torch.ones(len(classes), device=self.device) * torch.tensor(float('Inf'), device=self.device)
@@ -79,13 +82,12 @@ class SA:
 
         for i in range(len(classes)):
             curr_class = classes[i, :]
-            latent_pts = self.sample(image, mask, curr_class, loss_fn, num_tries=1)
+            latent_pts = self.sample(image, mask, curr_class, loss_fn, num_tries=num_tries)
             loss[i, 1] = self.find_entropy(image, latent_pts, curr_class, loss_fn)
 
             with torch.no_grad():
                 images_gen = self.decoder(torch.cat([latent_pts[-num_img:, :], curr_class.repeat(num_img, 1)], -1))
             images_all_classes[i, :, :, :, :] = images_gen
-        loss[:, 1] = loss[:, 1] / torch.sum(loss[:, 1])
 
         return loss, images_all_classes
 
@@ -97,6 +99,40 @@ class SA:
         pixels_in_common = torch.where((mask_elements == mask).all(dim=1))[0]
         mask_elements = torch.cat((mask_elements[:pixels_in_common], mask_elements[pixels_in_common + 1:]))
         return mask_elements
+
+    def parallel_fn(self, mask, images_all_classes, classes, loss_fn, candidate):
+        mask_candidate = torch.cat([mask, torch.unsqueeze(candidate, 0)], dim=0)
+        candidate_loss = torch.zeros(len(classes))
+        for i in range(len(images_all_classes)):
+            loss, _ = self.evaluate_classes(images_all_classes[i, :, :], mask_candidate.long(), classes,
+                                            loss_fn)
+            candidate_loss[:] += loss[:, 1]
+        return candidate_loss
+
+    def cpu_parallel(self, mask, image_real, classes, images_all_classes, loss_fn):
+        mask_candidates = self.unseen_pixels(mask, image_real)
+        mask_elem = [torch.tensor(elem) for elem in mask_candidates.tolist()]
+        mask_elem = mask_elem[0:4]
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            results = executor.map(functools.partial(self.parallel_fn, mask, images_all_classes, classes, loss_fn), mask_elem)
+        stds = [torch.std(elem).detach().numpy() for elem in list(results)]
+        print(np.argmax(stds))
+        return mask
+
+    def gpu_parallel(self, mask, image_real, classes, images_all_classes, loss_fn):
+        mask_candidates = self.unseen_pixels(mask, image_real)
+        candidate_loss = torch.zeros([len(mask_candidates), len(classes)], device=self.device)
+        for idx, candidate in enumerate(mask_candidates):
+            mask_candidate = torch.cat([mask, torch.unsqueeze(candidate, 0)], dim=0)
+            for i in range(len(images_all_classes)):
+                loss, _ = self.evaluate_classes(images_all_classes[i, :, :], mask_candidate.long(), classes,
+                                                loss_fn)
+                candidate_loss[idx, :] += loss[:, 1]
+
+        mask = torch.cat([mask, torch.unsqueeze(mask_candidates[torch.argmax(candidate_loss.std(dim=1))], 0)],
+                         dim=0)
+        return mask
+
 
     def algorithm(self, image, label, loss_fn='l1'):
         self.decoder.eval()
@@ -112,28 +148,27 @@ class SA:
         else:
             raise ValueError
 
-        # Current status:
-        loss, images_all_classes = self.evaluate_classes(image_real, mask.long(), classes, loss_fn)
-        images_all_classes = torch.reshape(images_all_classes, [len(classes)*int(self.num_samples * self.num_img_frac), len(image_real), len(image_real)])
-        self.print_status(mask, loss, label)
+        while len(mask) < self.num_pixels:
+            # Current status:
+            loss, images_all_classes = self.evaluate_classes(image_real, mask.long(), classes, loss_fn, num_tries=3)
+            images_all_classes = torch.reshape(images_all_classes,
+                                               [len(classes) * int(self.num_samples * self.num_img_frac),
+                                                len(image_real), len(image_real)])
+            self.print_status(mask, loss, label)
 
-        # Find next move:
-        mask_candidates = self.unseen_pixels(mask, image_real)
-        candidate_loss = torch.zeros([len(mask_candidates), len(classes)], device=self.device)
-        torch.save(mask_candidates, 'data/mask_candidates.pt')
-        for idx, candidate in enumerate(mask_candidates):
-            mask_candidate = torch.cat([mask, torch.unsqueeze(candidate, 0)], dim=0)
+            # Next status:
+            if torch.cuda.is_available():
+                mask = self.gpu_parallel(mask, image_real, classes, images_all_classes, loss_fn)
+            else:
+                mask = self.cpu_parallel(mask, image_real, classes, images_all_classes, loss_fn)
 
-            now = datetime.now()
-            current_time = now.strftime("%H:%M:%S")
-            print('Testing mask candidate: ' + str(idx+1) + '/' + str(len(mask_candidates)) + '| Current time: ' + str(current_time))
+        now = datetime.now()
+        current_time = now.strftime("%H%M%S")
+        torch.save(image_real, 'data/image'+str(current_time)+'.pt')
+        torch.save(mask, 'data/mask'+str(current_time)+'.pt')
 
-            for i in range(len(images_all_classes)):
-                loss, _ = self.evaluate_classes(images_all_classes[i, :, :], mask_candidate.long(), classes, loss_fn)
-                candidate_loss[idx, :] += loss[:, 1]
-        torch.save(candidate_loss, 'data/candidate_loss.pt')
 
-# Test a model that was trained with L1 loss z16
+
 
 
 
