@@ -44,7 +44,7 @@ def main(args):
         _, (image, label) = next(enumerate(mh_loader))
 
         sampler = sampling_algorithm.SA(cvae.decoder, device, args)
-        sampler.algorithm(image, label)
+        sampler.algorithm(image, label, args.loss_fn)
 
 
 if __name__ == '__main__':
@@ -56,7 +56,8 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, default=766)
     parser.add_argument("--epochs", type=int, default=55)
     parser.add_argument("--num_z", type=int, default=15)
-    parser.add_argument("--mh_steps", type=int, default=50)
+    parser.add_argument("--mh_steps", type=int, default=40)
+    parser.add_argument("--loss_fn", type=str, default='l1')
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--data_path", type=str, default='D://MNIST')
 

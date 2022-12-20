@@ -2,6 +2,8 @@ import torch
 from torchmetrics import MeanSquaredError
 import matplotlib.pyplot as plt
 import numpy as np
+from datetime import datetime
+import multiprocessing as mp
 
 
 class SA:
@@ -14,7 +16,7 @@ class SA:
         self.mc_sigma = mc_sigma
         self.num_img_frac = num_img_frac
 
-    def trial(self, new_loss, curr_loss, exp_amp=8):
+    def trial(self, new_loss, curr_loss, exp_amp=15):
         return torch.rand((1, 1), device=self.device) < torch.exp(-exp_amp*((new_loss - curr_loss)/curr_loss)) or new_loss < curr_loss
 
     def calc_loss(self, latent_point, image, mask, error_fn):
@@ -44,17 +46,18 @@ class SA:
             error = torch.tensor(1e10, device=self.device) * torch.ones((self.num_samples + self.burn_in, 1), device=self.device)
         return stored_latent_pts[self.burn_in:, :], error[-int(self.num_samples*0.1):]
 
-    def sample(self, image, mask, class_onehot, mse, num_tries=3):
+    def sample(self, image, mask, class_onehot, lossfn, num_tries=3):
         stored_err = torch.tensor(float('Inf'))
         for _ in range(num_tries):
-            latent_pts, final_err = self.generate_mc_samples(image, mask, class_onehot, mse)
+            latent_pts, final_err = self.generate_mc_samples(image, mask, class_onehot, lossfn)
             if torch.mean(final_err) < stored_err:
                 stored_latent_pts = latent_pts
                 stored_err = torch.mean(final_err)
         return stored_latent_pts
 
     def find_entropy(self, image, latent_pts, class_onehot, error_fn):
-        images_gen = self.decoder(torch.cat([latent_pts, class_onehot.repeat(len(latent_pts), 1)], -1))
+        with torch.no_grad():
+            images_gen = self.decoder(torch.cat([latent_pts, class_onehot.repeat(len(latent_pts), 1)], -1))
         images_truth = image.unsqueeze(0).repeat(len(latent_pts), 1, 1)
         loss = error_fn(torch.squeeze(images_gen), images_truth)
         return loss
@@ -63,7 +66,7 @@ class SA:
         print('Num pixels sampled: ' + str(len(mask) - 1))
         print('Current loss: ')
         print(str(loss.cpu().detach().numpy()))
-        print('Belief: ' + str(torch.argmin(loss).cpu().detach().numpy()) + ' Truth: ' + str(
+        print('Belief: ' + str(torch.argmin(loss[:, 1]).cpu().detach().numpy()) + ' Truth: ' + str(
             label.cpu().detach().numpy()))
         return
 
@@ -75,12 +78,12 @@ class SA:
         images_all_classes = torch.empty([len(classes), num_img, 1, len(image), len(image)], device=self.device)
 
         for i in range(len(classes)):
-            print('Evaluating ' + str(i))
             curr_class = classes[i, :]
             latent_pts = self.sample(image, mask, curr_class, loss_fn, num_tries=1)
             loss[i, 1] = self.find_entropy(image, latent_pts, curr_class, loss_fn)
 
-            images_gen = self.decoder(torch.cat([latent_pts[-num_img:, :], curr_class.repeat(num_img, 1)], -1))
+            with torch.no_grad():
+                images_gen = self.decoder(torch.cat([latent_pts[-num_img:, :], curr_class.repeat(num_img, 1)], -1))
             images_all_classes[i, :, :, :, :] = images_gen
         loss[:, 1] = loss[:, 1] / torch.sum(loss[:, 1])
 
@@ -95,28 +98,42 @@ class SA:
         mask_elements = torch.cat((mask_elements[:pixels_in_common], mask_elements[pixels_in_common + 1:]))
         return mask_elements
 
-    def algorithm(self, image, label):
+    def algorithm(self, image, label, loss_fn='l1'):
+        self.decoder.eval()
         image_real = image.squeeze()
         image_real = image_real.to(self.device)
         label = label.to(self.device)
         classes = torch.nn.functional.one_hot(torch.arange(10, device=self.device))
         mask = torch.zeros((1, 2), device=self.device)
-        loss_fn = MeanSquaredError().to(self.device)
+        if loss_fn == 'mse':
+            loss_fn = MeanSquaredError().to(self.device)
+        elif loss_fn == 'l1':
+            loss_fn = torch.nn.L1Loss().to(self.device)
+        else:
+            raise ValueError
 
         # Current status:
         loss, images_all_classes = self.evaluate_classes(image_real, mask.long(), classes, loss_fn)
         images_all_classes = torch.reshape(images_all_classes, [len(classes)*int(self.num_samples * self.num_img_frac), len(image_real), len(image_real)])
-
         self.print_status(mask, loss, label)
+
         # Find next move:
         mask_candidates = self.unseen_pixels(mask, image_real)
         candidate_loss = torch.zeros([len(mask_candidates), len(classes)], device=self.device)
-        for candidate in mask_candidates:
+        torch.save(mask_candidates, 'data/mask_candidates.pt')
+        for idx, candidate in enumerate(mask_candidates):
             mask_candidate = torch.cat([mask, torch.unsqueeze(candidate, 0)], dim=0)
+
+            now = datetime.now()
+            current_time = now.strftime("%H:%M:%S")
+            print('Testing mask candidate: ' + str(idx+1) + '/' + str(len(mask_candidates)) + '| Current time: ' + str(current_time))
+
             for i in range(len(images_all_classes)):
                 loss, _ = self.evaluate_classes(images_all_classes[i, :, :], mask_candidate.long(), classes, loss_fn)
-                candidate_loss[mask_candidate, :] += loss[:, 1]
+                candidate_loss[idx, :] += loss[:, 1]
+        torch.save(candidate_loss, 'data/candidate_loss.pt')
 
+# Test a model that was trained with L1 loss z16
 
 
 
