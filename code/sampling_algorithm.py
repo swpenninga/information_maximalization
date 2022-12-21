@@ -9,7 +9,7 @@ import concurrent.futures
 
 
 class SA:
-    def __init__(self, decoder,  device, args, burn_in_frac=0, mc_sigma=0.1, num_img_frac=0.2):
+    def __init__(self, decoder,  device, args, burn_in_frac=0, mc_sigma=0.15, num_img_frac=0.2):
         self.decoder = decoder.to(device)
         self.device = device
         self.num_z = args.num_z
@@ -19,7 +19,7 @@ class SA:
         self.num_img_frac = num_img_frac
         self.num_pixels = args.num_pixels
 
-    def trial(self, new_loss, curr_loss, exp_amp=15):
+    def trial(self, new_loss, curr_loss, exp_amp=8):
         return torch.rand((1, 1), device=self.device) < torch.exp(-exp_amp*((new_loss - curr_loss)/curr_loss)) or new_loss < curr_loss
 
     def calc_loss(self, latent_point, image, mask, error_fn):
@@ -134,26 +134,24 @@ class SA:
                          dim=0)
         return mask
 
-    def algorithm(self, image, label, loss_fn='l1'):
+    def algorithm(self, image, label):
         self.decoder.eval()
         image_real = image.squeeze()
         image_real = image_real.to(self.device)
         label = label.to(self.device)
         classes = torch.nn.functional.one_hot(torch.arange(10, device=self.device))
         mask = torch.zeros((1, 2), device=self.device)
-        if loss_fn == 'mse':
-            loss_fn = MeanSquaredError().to(self.device)
-        elif loss_fn == 'l1':
-            loss_fn = torch.nn.L1Loss().to(self.device)
-        else:
-            raise ValueError
+        loss_fn = MeanSquaredError().to(self.device)
+
+
 
         while len(mask) < self.num_pixels:
             # Current status:
-            loss, images_all_classes = self.evaluate_classes(image_real, mask.long(), classes, loss_fn, num_tries=3)
-            images_all_classes = torch.reshape(images_all_classes,
-                                               [len(classes) * int(self.num_samples * self.num_img_frac),
-                                                len(image_real), len(image_real)])
+            mask = self.unseen_pixels(mask, image_real)
+            loss, images_all_classes = self.evaluate_classes(image_real, mask.long(), classes, loss_fn, num_tries=2)
+            # images_all_classes = torch.reshape(images_all_classes,
+            #                                    [len(classes) * int(self.num_samples * self.num_img_frac),
+            #                                     len(image_real), len(image_real)])
             self.print_status(mask, loss, label)
 
             # Next status:
