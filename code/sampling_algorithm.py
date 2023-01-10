@@ -9,18 +9,20 @@ import concurrent.futures
 
 
 class SA:
-    def __init__(self, decoder,  device, args, burn_in_frac=0, mc_sigma=0.15, num_img_frac=0.2):
+    def __init__(self, decoder,  device, args, burn_in_frac=0, num_img_frac=0.1, sigma_obs=0.1):
         self.decoder = decoder.to(device)
         self.device = device
         self.num_z = args.num_z
         self.num_samples = args.mh_steps
         self.burn_in = int(burn_in_frac * args.mh_steps)
-        self.mc_sigma = mc_sigma
+        self.mc_sigma = args.mc_sigma
         self.num_img_frac = num_img_frac
         self.num_pixels = args.num_pixels
+        self.sigma_obs = sigma_obs
+        self.exp_amp = args.exp_amp
 
-    def trial(self, new_loss, curr_loss, exp_amp=8):
-        return torch.rand((1, 1), device=self.device) < torch.exp(-exp_amp*((new_loss - curr_loss)/curr_loss)) or new_loss < curr_loss
+    def trial(self, new_loss, curr_loss):
+        return torch.rand((1, 1), device=self.device) < torch.exp(-self.exp_amp*((new_loss - curr_loss)/curr_loss)) or new_loss < curr_loss
 
     def calc_loss(self, latent_point, image, mask, error_fn):
         with torch.no_grad():
@@ -37,7 +39,7 @@ class SA:
             stored_latent_pts = torch.zeros((1, self.num_z), device=self.device)
             error = torch.tensor(float('Inf'), device=self.device) * torch.ones(1, device=self.device)
             while len(stored_latent_pts) < self.num_samples + self.burn_in:
-                latent_point = stored_latent_pts[-1, :] + torch.normal(0, self.mc_sigma, size=(1, self.num_z), device=self.device)
+                latent_point = stored_latent_pts[-1, :] + torch.normal(0, torch.max(torch.tensor(0.005), self.mc_sigma * torch.tensor((self.num_samples + self.burn_in - len(stored_latent_pts))/(self.num_samples + self.burn_in))), size=(1, self.num_z), device=self.device)
                 error_candidate = self.calc_loss(torch.cat([latent_point, torch.unsqueeze(class_onehot, 0)], dim=1), image, mask, error_fn)
                 acceptance = self.trial(error_candidate, error[-1])
                 if acceptance:
@@ -67,10 +69,11 @@ class SA:
 
     def print_status(self, mask, loss, label):
         print('Num pixels sampled: ' + str(len(mask) - 1))
-        print('Current loss: ')
-        print(str(loss.cpu().detach().numpy()))
+        print(f"Knowledge: {(len(mask) - 1)/(28**2) * 100:.2f}%")
         print('Belief: ' + str(torch.argmin(loss[:, 1]).cpu().detach().numpy()) + ' Truth: ' + str(
             label.cpu().detach().numpy()))
+        print('Current loss: ')
+        print(str(loss.cpu().detach().numpy()))
         print('- - - - - - - - - - - - - - - - -')
         return
 
@@ -103,36 +106,18 @@ class SA:
             mask_elements = torch.cat((mask_elements[:pixels_in_common], mask_elements[pixels_in_common + 1:]))
         return mask_elements
 
-    def parallel_fn(self, mask, images_all_classes, classes, loss_fn, candidate):
-        mask_candidate = torch.cat([mask, torch.unsqueeze(candidate, 0)], dim=0)
-        candidate_loss = torch.zeros(len(classes))
-        for i in range(len(images_all_classes)):
-            loss, _ = self.evaluate_classes(images_all_classes[i, :, :], mask_candidate.long(), classes,
-                                            loss_fn)
-            candidate_loss[:] += loss[:, 1]
-        return candidate_loss
+    def decide_pixel(self, image_set, mask_candidates):
+        Q_a = -torch.ones(len(mask_candidates)) * float('inf')
+        unique_samples, frequency = image_set.unique(return_counts=True, dim=0)
+        for item_idx, item in enumerate(mask_candidates):
+            mu_a = image_set[:, item[0], item[1]]
+            mu_k = mu_a.repeat(len(mu_a), 1)
+            mu_l = mu_k.T
+            kl_div = torch.exp(torch.square(mu_k - mu_l) / (2 * self.sigma_obs))
+            sum_inter = torch.sum(frequency * kl_div, 1)
+            Q_a[item_idx] = torch.sum(frequency * torch.log(sum_inter))
 
-    def cpu_parallel(self, mask, image_real, classes, images_all_classes, loss_fn):
-        mask_candidates = self.unseen_pixels(mask, image_real)
-        mask_elem = [torch.tensor(elem) for elem in mask_candidates.tolist()]
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            results = executor.map(functools.partial(self.parallel_fn, mask, images_all_classes, classes, loss_fn), mask_elem)
-        stds = [torch.std(elem).detach().numpy() for elem in list(results)]
-        mask_candidate = torch.cat([mask, torch.unsqueeze(mask_elem[np.argmax(stds)], 0)], dim=0)
-        return mask_candidate
-
-    def gpu_parallel(self, mask, image_real, classes, images_all_classes, loss_fn):
-        mask_candidates = self.unseen_pixels(mask, image_real)
-        candidate_loss = torch.zeros([len(mask_candidates), len(classes)], device=self.device)
-        for idx, candidate in enumerate(mask_candidates):
-            mask_candidate = torch.cat([mask, torch.unsqueeze(candidate, 0)], dim=0)
-            for i in range(len(images_all_classes)):
-                loss, _ = self.evaluate_classes(images_all_classes[i, :, :], mask_candidate.long(), classes,
-                                                loss_fn)
-                candidate_loss[idx, :] += loss[:, 1]
-        mask = torch.cat([mask, torch.unsqueeze(mask_candidates[torch.argmax(candidate_loss.std(dim=1))], 0)],
-                         dim=0)
-        return mask
+        return mask_candidates[torch.argmax(Q_a)]
 
     def algorithm(self, image, label):
         self.decoder.eval()
@@ -143,22 +128,19 @@ class SA:
         mask = torch.zeros((1, 2), device=self.device)
         loss_fn = MeanSquaredError().to(self.device)
 
-
-
-        while len(mask) < self.num_pixels:
+        while len(mask) < self.num_pixels+1:
             # Current status:
-            mask = self.unseen_pixels(mask, image_real)
             loss, images_all_classes = self.evaluate_classes(image_real, mask.long(), classes, loss_fn, num_tries=2)
-            # images_all_classes = torch.reshape(images_all_classes,
-            #                                    [len(classes) * int(self.num_samples * self.num_img_frac),
-            #                                     len(image_real), len(image_real)])
             self.print_status(mask, loss, label)
 
             # Next status:
-            if torch.cuda.is_available():
-                mask = self.gpu_parallel(mask, image_real, classes, images_all_classes, loss_fn)
-            else:
-                mask = self.cpu_parallel(mask, image_real, classes, images_all_classes, loss_fn)
+            height = images_all_classes.size()[3]
+            width = images_all_classes.size()[4]
+            images_all_classes = images_all_classes.reshape(
+                [int(self.num_samples * self.num_img_frac * len(classes)), height, width])
+            mask_candidates = self.unseen_pixels(mask, image_real)
+            chosen_pixel = self.decide_pixel(images_all_classes, mask_candidates)
+            mask = torch.cat([mask, torch.unsqueeze(chosen_pixel, 0)], dim=0)
 
         now = datetime.now()
         current_time = now.strftime("%H%M%S")

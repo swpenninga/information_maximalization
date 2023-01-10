@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 
 import CVAE
 import utilities_network
-import sampling_algorithm_2
+import sampling_algorithm
 
 
 def load_data(path, batch_size, train=False):
@@ -43,7 +43,7 @@ def main(args):
         mh_loader = load_data(args.data_path, batch_size=1, train=False)
         _, (image, label) = next(enumerate(mh_loader))
 
-        sampler = sampling_algorithm_2.SA(cvae.decoder, device, args)
+        sampler = sampling_algorithm.SA(cvae.decoder, device, args)
         sampler.algorithm(image, label)
 
 
@@ -60,11 +60,10 @@ if __name__ == '__main__':
     parser.add_argument("--num_z", type=int, default=15)
     parser.add_argument("--batch_size", type=int, default=64)
 
-    parser.add_argument("--mh_steps", type=int, default=30)
+    parser.add_argument("--mh_steps", type=int, default=50)
     parser.add_argument("--num_pixels", type=int, default=50)
-    parser.add_argument("--mc_sigma", type=int, default=0.1)
-    parser.add_argument("--exp_amp", type=int, default=8)
-
+    parser.add_argument("--mc_sigma", type=int, default=0.15)
+    parser.add_argument("--exp_amp", type=int, default=25)
 
     arguments = parser.parse_args()
     main(arguments)
