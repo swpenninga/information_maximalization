@@ -1,11 +1,15 @@
-import functools
-
 import torch
 from torchmetrics import MeanSquaredError
 import matplotlib.pyplot as plt
 import numpy as np
-from datetime import datetime
-import concurrent.futures
+
+
+class FunctionReturn:
+    label = []
+    belief_tensor = []
+    image = []
+    mask = []
+    img_all_classes = []
 
 
 class SA:
@@ -20,6 +24,7 @@ class SA:
         self.num_pixels = args.num_pixels
         self.sigma_obs = sigma_obs
         self.exp_amp = args.exp_amp
+        self.print = args.print_mh
 
     def trial(self, new_loss, curr_loss):
         return torch.rand((1, 1), device=self.device) < torch.exp(-self.exp_amp*((new_loss - curr_loss)/curr_loss)) or new_loss < curr_loss
@@ -119,33 +124,44 @@ class SA:
 
         return mask_candidates[torch.argmax(Q_a)]
 
-    def algorithm(self, image, label):
+    def algorithm(self, data_tensor):
         self.decoder.eval()
+        image = data_tensor[0, 0, :, :]
+        label = data_tensor[0, 1, 0, 0]
         image_real = image.squeeze()
         image_real = image_real.to(self.device)
+        height = image_real.size()[0]
+        width = image_real.size()[1]
         label = label.to(self.device)
         classes = torch.nn.functional.one_hot(torch.arange(10, device=self.device))
         mask = torch.zeros((1, 2), device=self.device)
         loss_fn = MeanSquaredError().to(self.device)
+        belief_tensor = torch.zeros(len(classes), self.num_pixels+1)
+        img_all_classes_tensor = torch.zeros(self.num_pixels+1, int(self.num_samples * self.num_img_frac * len(classes)), height, width)
 
-        while len(mask) < self.num_pixels+1:
+        for p in range(self.num_pixels):
             # Current status:
-            loss, images_all_classes = self.evaluate_classes(image_real, mask.long(), classes, loss_fn, num_tries=2)
-            self.print_status(mask, loss, label)
+            loss, images_all_classes = self.evaluate_classes(image_real, mask.long(), classes, loss_fn, num_tries=4)
+            if self.print:
+                self.print_status(mask, loss, label)
 
             # Next status:
-            height = images_all_classes.size()[3]
-            width = images_all_classes.size()[4]
             images_all_classes = images_all_classes.reshape(
                 [int(self.num_samples * self.num_img_frac * len(classes)), height, width])
             mask_candidates = self.unseen_pixels(mask, image_real)
             chosen_pixel = self.decide_pixel(images_all_classes, mask_candidates)
-            mask = torch.cat([mask, torch.unsqueeze(chosen_pixel, 0)], dim=0)
 
-        now = datetime.now()
-        current_time = now.strftime("%H%M%S")
-        torch.save(image_real, 'data/image'+str(current_time)+'.pt')
-        torch.save(mask, 'data/mask'+str(current_time)+'.pt')
+            mask = torch.cat([mask, torch.unsqueeze(chosen_pixel, 0)], dim=0)
+            belief_tensor[:, p] = torch.argmin(loss[:, 1])
+            img_all_classes_tensor[p, :, :, :] = images_all_classes
+
+        output = FunctionReturn()
+        output.label = label
+        output.belief_tensor = belief_tensor
+        output.image = image_real
+        output.mask = mask
+        output.img_all_classes = img_all_classes_tensor
+        return output
 
 
 

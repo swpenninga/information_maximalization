@@ -2,6 +2,8 @@ import argparse
 import torch
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+import concurrent.futures
+from datetime import datetime
 
 import CVAE
 import utilities_network
@@ -41,10 +43,21 @@ def main(args):
 
     if args.sampling_algorithm:
         mh_loader = load_data(args.data_path, batch_size=1, train=False)
-        _, (image, label) = next(enumerate(mh_loader))
-
         sampler = sampling_algorithm.SA(cvae.decoder, device, args)
-        sampler.algorithm(image, label)
+
+        data_list = []
+        for i in range(args.num_images):
+            _, (image, label) = next(enumerate(mh_loader))
+            data_tensor = torch.empty(1, 2, 28, 28)
+            data_tensor[0, 0, :, :] = image
+            data_tensor[0, 1, 0, 0] = label
+            data_list.append(data_tensor)
+
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            results = executor.map(sampler.algorithm, data_list)
+        now = datetime.now()
+        current_time = now.strftime("%H%M%S")
+        torch.save(list(results), 'data/run' + current_time + '.pt')
 
 
 if __name__ == '__main__':
@@ -60,10 +73,12 @@ if __name__ == '__main__':
     parser.add_argument("--num_z", type=int, default=15)
     parser.add_argument("--batch_size", type=int, default=64)
 
+    parser.add_argument("--num_images", type=int, default=2)
     parser.add_argument("--mh_steps", type=int, default=50)
     parser.add_argument("--num_pixels", type=int, default=50)
     parser.add_argument("--mc_sigma", type=int, default=0.15)
     parser.add_argument("--exp_amp", type=int, default=25)
+    parser.add_argument("--print_mh", type=bool, default=True)
 
     arguments = parser.parse_args()
     main(arguments)
