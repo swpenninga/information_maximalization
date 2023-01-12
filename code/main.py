@@ -4,6 +4,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import concurrent.futures
 from datetime import datetime
+from tqdm import tqdm
 
 import CVAE
 import utilities_network
@@ -58,7 +59,7 @@ def main(args):
             data_list.append(data_tensor)
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
-            results = executor.map(sampler.algorithm, data_list)
+            results = tqdm(executor.map(sampler.algorithm, data_list), total=len(data_list))
         now = datetime.now()
         current_time = now.strftime("%H%M%S")
         torch.save(list(results), 'data/run' + current_time + '.pt')
@@ -79,12 +80,12 @@ if __name__ == '__main__':
     parser.add_argument("--num_z", type=int, default=15)
     parser.add_argument("--batch_size", type=int, default=64)
 
-    parser.add_argument("--num_images", type=int, default=1)
+    parser.add_argument("--num_images", type=int, default=100)
     parser.add_argument("--mh_steps", type=int, default=75)
-    parser.add_argument("--num_pixels", type=int, default=3)
+    parser.add_argument("--num_pixels", type=int, default=25)
     parser.add_argument("--mc_sigma", type=int, default=0.10)
     parser.add_argument("--exp_amp", type=int, default=25)
-    parser.add_argument("--print_mh", type=bool, default=True)
+    parser.add_argument("--print_mh", type=bool, default=False)
 
     arguments = parser.parse_args()
     main(arguments)
