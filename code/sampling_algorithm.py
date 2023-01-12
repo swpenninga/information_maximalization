@@ -136,7 +136,7 @@ class SA:
         classes = torch.nn.functional.one_hot(torch.arange(10, device=self.device))
         mask = torch.zeros((1, 2), device=self.device)
         loss_fn = MeanSquaredError().to(self.device)
-        belief_tensor = torch.zeros(len(classes), self.num_pixels+1, device=self.device)
+        belief_tensor = torch.zeros(self.num_pixels, device=self.device)
         img_all_classes_tensor = torch.zeros(self.num_pixels+1, int(self.num_samples * self.num_img_frac * len(classes)), height, width, device=self.device)
 
         for p in range(self.num_pixels):
@@ -152,7 +152,7 @@ class SA:
             chosen_pixel = self.decide_pixel(images_all_classes, mask_candidates)
 
             mask = torch.cat([mask, torch.unsqueeze(chosen_pixel, 0)], dim=0)
-            belief_tensor[:, p] = torch.argmin(loss[:, 1])
+            belief_tensor[p] = torch.argmin(loss[:, 1])
             img_all_classes_tensor[p, :, :, :] = images_all_classes
 
         output = FunctionReturn()
