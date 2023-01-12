@@ -20,10 +20,10 @@ def load_data(path, batch_size, train=False):
 
 
 def main(args):
-    data_loc = 'D://5LSL0-Datasets'
+    data_loc = 'C:/MNIST'
     train_loader = load_data(args.data_path, batch_size=args.batch_size, train=True)
     test_loader = load_data(args.data_path, batch_size=args.batch_size, train=False)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
     print('Running on ' + str(device))
 
     if torch.cuda.is_available():
@@ -42,6 +42,10 @@ def main(args):
             utilities_network.plot_zspace(cvae, number=5, num_samples=64)
 
     if args.sampling_algorithm:
+        now = datetime.now()
+        print('Time of start: ')
+        print(now)
+
         mh_loader = load_data(args.data_path, batch_size=1, train=False)
         sampler = sampling_algorithm.SA(cvae.decoder, device, args)
 
@@ -58,6 +62,8 @@ def main(args):
         now = datetime.now()
         current_time = now.strftime("%H%M%S")
         torch.save(list(results), 'data/run' + current_time + '.pt')
+        print('Time of finish:')
+        print(now)
 
 
 if __name__ == '__main__':
@@ -73,10 +79,10 @@ if __name__ == '__main__':
     parser.add_argument("--num_z", type=int, default=15)
     parser.add_argument("--batch_size", type=int, default=64)
 
-    parser.add_argument("--num_images", type=int, default=2)
-    parser.add_argument("--mh_steps", type=int, default=50)
-    parser.add_argument("--num_pixels", type=int, default=50)
-    parser.add_argument("--mc_sigma", type=int, default=0.15)
+    parser.add_argument("--num_images", type=int, default=1)
+    parser.add_argument("--mh_steps", type=int, default=75)
+    parser.add_argument("--num_pixels", type=int, default=25)
+    parser.add_argument("--mc_sigma", type=int, default=0.10)
     parser.add_argument("--exp_amp", type=int, default=25)
     parser.add_argument("--print_mh", type=bool, default=True)
 

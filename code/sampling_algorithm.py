@@ -13,7 +13,7 @@ class FunctionReturn:
 
 
 class SA:
-    def __init__(self, decoder,  device, args, burn_in_frac=0, num_img_frac=0.1, sigma_obs=0.1):
+    def __init__(self, decoder,  device, args, burn_in_frac=0, num_img_frac=1/75, sigma_obs=0.1):
         self.decoder = decoder.to(device)
         self.device = device
         self.num_z = args.num_z
@@ -112,7 +112,7 @@ class SA:
         return mask_elements
 
     def decide_pixel(self, image_set, mask_candidates):
-        Q_a = -torch.ones(len(mask_candidates)) * float('inf')
+        Q_a = -torch.ones(len(mask_candidates), device=self.device) * float('inf')
         unique_samples, frequency = image_set.unique(return_counts=True, dim=0)
         for item_idx, item in enumerate(mask_candidates):
             mu_a = image_set[:, item[0], item[1]]
@@ -136,12 +136,12 @@ class SA:
         classes = torch.nn.functional.one_hot(torch.arange(10, device=self.device))
         mask = torch.zeros((1, 2), device=self.device)
         loss_fn = MeanSquaredError().to(self.device)
-        belief_tensor = torch.zeros(len(classes), self.num_pixels+1)
-        img_all_classes_tensor = torch.zeros(self.num_pixels+1, int(self.num_samples * self.num_img_frac * len(classes)), height, width)
+        belief_tensor = torch.zeros(len(classes), self.num_pixels+1, device=self.device)
+        img_all_classes_tensor = torch.zeros(self.num_pixels+1, int(self.num_samples * self.num_img_frac * len(classes)), height, width, device=self.device)
 
         for p in range(self.num_pixels):
             # Current status:
-            loss, images_all_classes = self.evaluate_classes(image_real, mask.long(), classes, loss_fn, num_tries=4)
+            loss, images_all_classes = self.evaluate_classes(image_real, mask.long(), classes, loss_fn, num_tries=2)
             if self.print:
                 self.print_status(mask, loss, label)
 
